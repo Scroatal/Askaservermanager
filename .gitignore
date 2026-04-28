@@ -1,0 +1,20 @@
+# Local app state
+settings.json
+mods.json
+
+# Build outputs
+build/
+dist/
+release/
+*.spec
+
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Local references and generated prompt files
+Askaservermanagerprompt.txt
+*.pdf
+
+# Generated/unused reference assets
+assets/aska_crow.*
