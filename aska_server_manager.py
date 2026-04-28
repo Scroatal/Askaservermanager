@@ -9,6 +9,7 @@ import time
 import urllib.error
 import urllib.request
 import webbrowser
+import winreg
 import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.1.1"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -476,7 +477,8 @@ class AskaServerManager(tk.Tk):
     def build_settings_tab(self):
         form = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
         form.pack(fill="x")
-        ttk.Label(form, text="PATHS", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 10))
+        ttk.Label(form, text="PATHS", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 10))
+        ttk.Button(form, text="Auto-detect Paths", style="Accent.TButton", command=self.autodetect_paths).grid(row=0, column=2, sticky="e", pady=(0, 10))
         for row_index, (key, label, is_file) in enumerate([
             ("server_install_path", "Server install folder", False),
             ("server_bat_path", "Launcher batch file", True),
@@ -1426,6 +1428,144 @@ class AskaServerManager(tk.Tk):
             selected = filedialog.askdirectory(initialdir=current or str(APP_DIR))
         if selected:
             self.path_vars[key].set(selected)
+
+    def steam_install_paths_from_registry(self):
+        paths = []
+        registry_locations = [
+            (winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Valve\Steam"),
+            (winreg.HKEY_LOCAL_MACHINE, r"Software\Valve\Steam"),
+        ]
+        for hive, subkey in registry_locations:
+            try:
+                with winreg.OpenKey(hive, subkey) as key:
+                    value, _ = winreg.QueryValueEx(key, "SteamPath")
+                    if value:
+                        paths.append(Path(value))
+            except OSError:
+                pass
+            try:
+                with winreg.OpenKey(hive, subkey) as key:
+                    value, _ = winreg.QueryValueEx(key, "InstallPath")
+                    if value:
+                        paths.append(Path(value))
+            except OSError:
+                pass
+        for fallback in [Path(r"C:\Program Files (x86)\Steam"), Path(r"C:\Program Files\Steam"), Path(r"E:\steam")]:
+            paths.append(fallback)
+        return list(dict.fromkeys(path for path in paths if path))
+
+    def steam_library_paths(self):
+        libraries = []
+        for steam_path in self.steam_install_paths_from_registry():
+            steamapps = steam_path / "steamapps"
+            if steamapps.exists():
+                libraries.append(steamapps)
+            library_vdf = steamapps / "libraryfolders.vdf"
+            if not library_vdf.exists():
+                continue
+            try:
+                text = library_vdf.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            for match in re.finditer(r'"path"\s+"([^"]+)"', text, re.IGNORECASE):
+                path_text = match.group(1).replace("\\\\", "\\")
+                library_steamapps = Path(path_text) / "steamapps"
+                if library_steamapps.exists():
+                    libraries.append(library_steamapps)
+        return list(dict.fromkeys(libraries))
+
+    def detect_aska_install_from_steam(self):
+        for steamapps in self.steam_library_paths():
+            manifest = steamapps / f"appmanifest_{ASKA_DEDICATED_SERVER_APP_ID}.acf"
+            if not manifest.exists():
+                continue
+            installdir = "ASKA Dedicated Server"
+            try:
+                text = manifest.read_text(encoding="utf-8", errors="replace")
+                match = re.search(r'"installdir"\s+"([^"]+)"', text, re.IGNORECASE)
+                if match:
+                    installdir = match.group(1)
+            except OSError:
+                pass
+            install_path = steamapps / "common" / installdir
+            if (install_path / SERVER_EXE_NAME).exists() or install_path.exists():
+                return install_path
+        return None
+
+    def detect_aska_install_from_process(self):
+        try:
+            result = subprocess.run(
+                [
+                    "powershell",
+                    "-NoProfile",
+                    "-Command",
+                    "Get-Process -Name AskaServer -ErrorAction SilentlyContinue | "
+                    "Select-Object -First 1 -ExpandProperty Path",
+                ],
+                capture_output=True,
+                text=True,
+                creationflags=subprocess.CREATE_NO_WINDOW,
+                timeout=10,
+            )
+            path_text = result.stdout.strip()
+            if path_text:
+                path = Path(path_text)
+                if path.exists():
+                    return path.parent
+        except (OSError, subprocess.SubprocessError):
+            pass
+        return None
+
+    def detect_steamcmd_path(self):
+        candidates = [
+            self.path("steamcmd_path"),
+            Path(r"C:\steamcmd\steamcmd.exe"),
+            Path(r"E:\steamcmd\steamcmd.exe"),
+            Path(r"D:\steamcmd\steamcmd.exe"),
+            Path(r"C:\Program Files\SteamCMD\steamcmd.exe"),
+            Path(r"C:\Program Files (x86)\SteamCMD\steamcmd.exe"),
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return None
+
+    def autodetect_paths(self):
+        detected = {}
+        install_path = self.detect_aska_install_from_process() or self.detect_aska_install_from_steam()
+        if install_path:
+            detected["server_install_path"] = str(install_path)
+            detected["server_bat_path"] = str(install_path / "AskaServer.bat")
+            detected["server_config_path"] = str(install_path / "server properties.txt")
+            detected["bepinex_plugins_path"] = str(install_path / "BepInEx" / "plugins")
+            detected["bepinex_config_path"] = str(install_path / "BepInEx" / "config")
+
+        steamcmd_path = self.detect_steamcmd_path()
+        if steamcmd_path:
+            detected["steamcmd_path"] = str(steamcmd_path)
+
+        detected["save_folder_path"] = str(DEFAULT_SAVE)
+        detected["backup_folder_path"] = self.path_vars.get("backup_folder_path", tk.StringVar(value=str(DEFAULT_BACKUPS))).get() or str(DEFAULT_BACKUPS)
+
+        for key, value in detected.items():
+            if key in self.path_vars:
+                self.path_vars[key].set(value)
+                self.settings[key] = value
+        write_json(SETTINGS_FILE, self.settings)
+        self.refresh_all()
+
+        if install_path:
+            message = "Detected ASKA dedicated server paths and saved them."
+        else:
+            message = (
+                "Could not auto-detect the ASKA Dedicated Server install folder.\n\n"
+                "The app still filled the standard save path. Start the server once or browse to the install folder manually."
+            )
+        if not steamcmd_path:
+            message += "\n\nSteamCMD was not found. Set SteamCMD executable manually if you want server updates."
+        self.log(f"Auto-detect paths result: {detected}")
+        messagebox.showinfo(APP_NAME, message)
 
     def save_settings_from_ui(self):
         for key, var in self.path_vars.items():

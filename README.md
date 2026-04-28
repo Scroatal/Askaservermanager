@@ -1,6 +1,6 @@
 # ASKA Server Manager
 
-Version: `0.1.0`
+Version: `0.1.1`
 
 Local Windows desktop manager for an ASKA dedicated server. It is built with Python 3 and Tkinter, using only the Python standard library.
 
@@ -50,7 +50,7 @@ Save folder
 Backup folder
 ```
 
-Click `Save Settings`, then close and reopen the app once to confirm settings persist.
+Click `Auto-detect Paths` to let the app find paths from the running `AskaServer.exe`, Steam library manifests, and common SteamCMD locations. Review the detected values, then click `Save Settings`, close and reopen the app once to confirm settings persist.
 
 Recommended first test:
 
