@@ -1,6 +1,6 @@
 # ASKA Server Manager
 
-Version: `0.1.3`
+Version: `0.1.4`
 
 Local Windows desktop manager for an ASKA dedicated server. It is built with Python 3 and Tkinter, using only the Python standard library.
 
@@ -65,6 +65,20 @@ Recommended first test:
 The app refuses to restore, wipe, edit server config, edit mod config, install mod ZIPs, or update the server while `AskaServer.exe` is running.
 
 Before restore, wipe, server update, and mod ZIP install, the app creates backups. If the required pre-wipe backup fails, the wipe is aborted.
+
+## Windows Startup And Auto-Restart
+
+The Settings tab has three startup/watchdog options:
+
+```text
+Launch ASKA Server Manager when Windows starts
+Start ASKA server when the manager opens
+Auto-restart ASKA server if it stops unexpectedly
+```
+
+When Windows startup is enabled, the app creates a startup batch file in the current user's Windows Startup folder. Disabling the option removes that file.
+
+Auto-restart only acts when the manager believes the server should be running. Clicking `Start Server` or enabling `Start ASKA server when the manager opens` sets that expectation. Clicking `Stop Server` clears it so the app does not restart a server you intentionally stopped.
 
 ## Run
 

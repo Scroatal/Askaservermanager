@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.3"
+APP_VERSION = "0.1.4"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -50,6 +50,9 @@ DEFAULT_SETTINGS = {
     "backup_interval_minutes": 60,
     "retention_hours": 24,
     "nexus_api_key": "",
+    "launch_on_windows_startup": False,
+    "start_server_on_app_launch": False,
+    "auto_restart_server": False,
 }
 
 CONFIG_FIELDS = [
@@ -180,6 +183,8 @@ class AskaServerManager(tk.Tk):
         self.mod_sources = read_json(MOD_SOURCES_FILE, {})
         self.auto_backup_job = None
         self.status_job = None
+        self.watchdog_job = None
+        self.server_should_be_running = False
         self.config_vars = {}
         self.path_vars = {}
         self.dashboard_vars = {}
@@ -207,6 +212,12 @@ class AskaServerManager(tk.Tk):
         self.schedule_status_refresh()
         self.schedule_auto_backup()
         self.after(3500, lambda: self.check_server_update(show_dialog=False))
+        if self.settings.get("start_server_on_app_launch"):
+            self.server_should_be_running = True
+            self.after(2500, self.start_server)
+        elif self.is_server_running():
+            self.server_should_be_running = True
+        self.schedule_server_watchdog()
 
     def build_styles(self):
         style = ttk.Style(self)
@@ -529,6 +540,21 @@ class AskaServerManager(tk.Tk):
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
         nexus.columnconfigure(1, weight=1)
 
+        startup = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
+        startup.pack(fill="x", pady=(14, 0))
+        ttk.Label(startup, text="STARTUP AND WATCHDOG", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
+        self.launch_on_startup_var = tk.BooleanVar(value=bool(self.settings.get("launch_on_windows_startup")))
+        self.start_server_on_launch_var = tk.BooleanVar(value=bool(self.settings.get("start_server_on_app_launch")))
+        self.auto_restart_var = tk.BooleanVar(value=bool(self.settings.get("auto_restart_server")))
+        ttk.Checkbutton(startup, text="Launch ASKA Server Manager when Windows starts", variable=self.launch_on_startup_var).grid(row=1, column=0, sticky="w", pady=3)
+        ttk.Checkbutton(startup, text="Start ASKA server when the manager opens", variable=self.start_server_on_launch_var).grid(row=2, column=0, sticky="w", pady=3)
+        ttk.Checkbutton(startup, text="Auto-restart ASKA server if it stops unexpectedly", variable=self.auto_restart_var).grid(row=3, column=0, sticky="w", pady=3)
+        ttk.Label(
+            startup,
+            text="Auto-restart only acts when the app believes the server should be running. Clicking Stop Server disables that expectation.",
+            style="Panel.TLabel",
+        ).grid(row=4, column=0, sticky="w", pady=(8, 0))
+
     def build_logs_tab(self):
         self.log_text = tk.Text(
             self.logs_tab,
@@ -649,6 +675,7 @@ class AskaServerManager(tk.Tk):
 
     def start_server(self):
         if self.is_server_running():
+            self.server_should_be_running = True
             messagebox.showinfo(APP_NAME, "The ASKA server is already running.")
             self.log("Start skipped: server already running.")
             return
@@ -664,6 +691,7 @@ class AskaServerManager(tk.Tk):
                 shell=True,
                 creationflags=subprocess.CREATE_NEW_CONSOLE,
             )
+            self.server_should_be_running = True
             self.log("Server start requested.")
             self.after(2000, self.refresh_status)
         except OSError as exc:
@@ -671,6 +699,7 @@ class AskaServerManager(tk.Tk):
             self.log(f"Start failed: {exc}")
 
     def stop_server(self, ask_force=True) -> bool:
+        self.server_should_be_running = False
         if not self.is_server_running():
             self.log("Stop skipped: server is not running.")
             self.refresh_status()
@@ -718,8 +747,21 @@ class AskaServerManager(tk.Tk):
         def work():
             if self.stop_server():
                 time.sleep(3)
+                self.server_should_be_running = True
                 self.after(0, self.start_server)
         threading.Thread(target=work, daemon=True).start()
+
+    def schedule_server_watchdog(self):
+        if self.watchdog_job:
+            self.after_cancel(self.watchdog_job)
+            self.watchdog_job = None
+        self.watchdog_job = self.after(30000, self.server_watchdog_tick)
+
+    def server_watchdog_tick(self):
+        if self.settings.get("auto_restart_server") and self.server_should_be_running and not self.is_server_running():
+            self.log("Watchdog detected server stopped unexpectedly. Restarting server.")
+            self.start_server()
+        self.schedule_server_watchdog()
 
     def steam_appmanifest_path(self) -> Path:
         install_dir = self.path("server_install_path")
@@ -1468,6 +1510,34 @@ class AskaServerManager(tk.Tk):
         if selected:
             self.path_vars[key].set(selected)
 
+    def windows_startup_script_path(self) -> Path:
+        startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"
+        return startup_dir / "ASKA Server Manager.bat"
+
+    def app_launch_command(self) -> str:
+        if getattr(sys, "frozen", False):
+            return f'start "" "{sys.executable}"'
+        return f'start "" "{sys.executable}" "{Path(__file__).resolve()}"'
+
+    def sync_windows_startup(self):
+        script_path = self.windows_startup_script_path()
+        if self.settings.get("launch_on_windows_startup"):
+            try:
+                script_path.parent.mkdir(parents=True, exist_ok=True)
+                script_path.write_text("@echo off\n" + self.app_launch_command() + "\n", encoding="utf-8")
+                self.log(f"Windows startup entry enabled: {script_path}")
+            except OSError as exc:
+                self.log(f"Could not enable Windows startup entry: {exc}")
+                messagebox.showerror(APP_NAME, f"Could not enable Windows startup entry:\n{exc}")
+        else:
+            try:
+                if script_path.exists():
+                    script_path.unlink()
+                    self.log(f"Windows startup entry removed: {script_path}")
+            except OSError as exc:
+                self.log(f"Could not remove Windows startup entry: {exc}")
+                messagebox.showerror(APP_NAME, f"Could not remove Windows startup entry:\n{exc}")
+
     def steam_install_paths_from_registry(self):
         paths = []
         registry_locations = [
@@ -1622,7 +1692,11 @@ class AskaServerManager(tk.Tk):
         self.settings["auto_backup_enabled"] = self.auto_backup_var.get()
         self.settings["backup_on_startup"] = self.startup_backup_var.get()
         self.settings["nexus_api_key"] = self.nexus_api_key_var.get().strip()
+        self.settings["launch_on_windows_startup"] = self.launch_on_startup_var.get()
+        self.settings["start_server_on_app_launch"] = self.start_server_on_launch_var.get()
+        self.settings["auto_restart_server"] = self.auto_restart_var.get()
         write_json(SETTINGS_FILE, self.settings)
+        self.sync_windows_startup()
         self.log("Settings saved.")
         self.refresh_all()
         self.schedule_auto_backup()
