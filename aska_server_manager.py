@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.1"
+APP_VERSION = "0.1.2"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -300,7 +300,7 @@ class AskaServerManager(tk.Tk):
         asset_file = self.resource_path("assets/aska_manager_icon.png")
         if asset_file.exists():
             try:
-                self.dashboard_icon_image = tk.PhotoImage(file=str(asset_file)).subsample(6, 6)
+                self.dashboard_icon_image = tk.PhotoImage(file=str(asset_file)).subsample(8, 8)
                 ttk.Label(left, image=self.dashboard_icon_image, background=COLORS["panel"]).pack(pady=(0, 14))
             except tk.TclError:
                 self.dashboard_icon_image = None
@@ -327,13 +327,13 @@ class AskaServerManager(tk.Tk):
 
         danger = self.panel(left, "Dangerous actions")
         danger.pack(fill="x", pady=(12, 0))
+        ttk.Button(danger, text="Wipe Current Server Save", style="Danger.TButton", command=self.wipe_save).pack(anchor="w", pady=(0, 8))
         ttk.Label(
             danger,
             text="Wiping refuses to run while the server is active and makes an emergency backup first.",
             style="Panel.TLabel",
             wraplength=480,
-        ).pack(anchor="w", pady=(0, 8))
-        ttk.Button(danger, text="Wipe Current Server Save", style="Danger.TButton", command=self.wipe_save).pack(anchor="w")
+        ).pack(anchor="w")
 
         for key, label in [
             ("detected_process", "Detected process"),
@@ -762,6 +762,24 @@ class AskaServerManager(tk.Tk):
                 self.after(0, self.dashboard_vars["server_update_status"].set, "Check failed")
             if show_dialog:
                 self.after(0, messagebox.showerror, APP_NAME, f"Server update check failed:\n{exc}")
+            return
+
+        if result.get("success") is False:
+            error_text = result.get("error") or "Steam did not return update information."
+            status_text = f"Check unavailable - {error_text}"
+            self.log(f"Server update check unavailable: local={build_id}, error={error_text}")
+            if "server_update_status" in self.dashboard_vars:
+                self.after(0, self.dashboard_vars["server_update_status"].set, status_text)
+            if show_dialog:
+                self.after(
+                    0,
+                    messagebox.showinfo,
+                    APP_NAME,
+                    "Steam did not return update information for ASKA Dedicated Server.\n\n"
+                    f"Local build: {build_id}\n"
+                    f"Steam response: {error_text}\n\n"
+                    "You can still use Update Server while the server is stopped.",
+                )
             return
 
         up_to_date = bool(result.get("up_to_date"))
