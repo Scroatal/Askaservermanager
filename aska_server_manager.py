@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.4"
+APP_VERSION = "0.1.5"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -276,7 +276,7 @@ class AskaServerManager(tk.Tk):
         self.backups_tab = ttk.Frame(self.notebook, padding=14)
         self.config_tab = ttk.Frame(self.notebook, padding=14)
         self.mods_tab = ttk.Frame(self.notebook, padding=14)
-        self.settings_tab = ttk.Frame(self.notebook, padding=14)
+        self.settings_tab = ttk.Frame(self.notebook, padding=0)
         self.logs_tab = ttk.Frame(self.notebook, padding=14)
 
         self.notebook.add(self.dashboard_tab, text="Dashboard")
@@ -494,7 +494,25 @@ class AskaServerManager(tk.Tk):
         text_scroll_x.pack(side="bottom", fill="x")
 
     def build_settings_tab(self):
-        form = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
+        canvas = tk.Canvas(self.settings_tab, bg=COLORS["bg"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(self.settings_tab, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        container = ttk.Frame(canvas, padding=14)
+        window_id = canvas.create_window((0, 0), window=container, anchor="nw")
+
+        def resize_container(event):
+            canvas.itemconfigure(window_id, width=event.width)
+
+        def update_scroll_region(_event=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        canvas.bind("<Configure>", resize_container)
+        container.bind("<Configure>", update_scroll_region)
+
+        form = ttk.Frame(container, style="Panel.TFrame", padding=14)
         form.pack(fill="x")
         ttk.Label(form, text="PATHS", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, sticky="w", pady=(0, 10))
         ttk.Button(form, text="Auto-detect Paths", style="Accent.TButton", command=self.autodetect_paths).grid(row=0, column=2, sticky="e", pady=(0, 10))
@@ -516,7 +534,7 @@ class AskaServerManager(tk.Tk):
             ttk.Button(form, text="Browse", command=lambda k=key, f=is_file: self.browse_path(k, f)).grid(row=grid_row, column=2, pady=5)
         form.columnconfigure(1, weight=1)
 
-        opts = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
+        opts = ttk.Frame(container, style="Panel.TFrame", padding=14)
         opts.pack(fill="x", pady=(14, 0))
         ttk.Label(opts, text="BACKUP POLICY", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
         self.interval_var = tk.StringVar(value=str(self.settings.get("backup_interval_minutes", 60)))
@@ -527,7 +545,7 @@ class AskaServerManager(tk.Tk):
         ttk.Entry(opts, textvariable=self.retention_var, width=12).grid(row=2, column=1, sticky="w", pady=5)
         ttk.Button(opts, text="Save Settings", style="Accent.TButton", command=self.save_settings_from_ui).grid(row=3, column=0, sticky="w", pady=(12, 0))
 
-        nexus = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
+        nexus = ttk.Frame(container, style="Panel.TFrame", padding=14)
         nexus.pack(fill="x", pady=(14, 0))
         ttk.Label(nexus, text="NEXUS MODS", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
         self.nexus_api_key_var = tk.StringVar(value=str(self.settings.get("nexus_api_key", "")))
@@ -540,7 +558,7 @@ class AskaServerManager(tk.Tk):
         ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
         nexus.columnconfigure(1, weight=1)
 
-        startup = ttk.Frame(self.settings_tab, style="Panel.TFrame", padding=14)
+        startup = ttk.Frame(container, style="Panel.TFrame", padding=14)
         startup.pack(fill="x", pady=(14, 0))
         ttk.Label(startup, text="STARTUP AND WATCHDOG", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
         self.launch_on_startup_var = tk.BooleanVar(value=bool(self.settings.get("launch_on_windows_startup")))
