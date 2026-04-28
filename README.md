@@ -1,6 +1,6 @@
 # ASKA Server Manager
 
-Version: `0.1.5`
+Version: `0.1.6`
 
 Local Windows desktop manager for an ASKA dedicated server. It is built with Python 3 and Tkinter, using only the Python standard library.
 

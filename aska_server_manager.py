@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.5"
+APP_VERSION = "0.1.6"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -198,6 +198,7 @@ class AskaServerManager(tk.Tk):
         self.start_button = None
         self.stop_button = None
         self.update_server_button = None
+        self.nexus_key_status_var = None
         self.icon_image = None
         self.dashboard_icon_image = None
 
@@ -549,13 +550,16 @@ class AskaServerManager(tk.Tk):
         nexus.pack(fill="x", pady=(14, 0))
         ttk.Label(nexus, text="NEXUS MODS", style="Panel.TLabel", font=("Segoe UI", 11, "bold")).grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 10))
         self.nexus_api_key_var = tk.StringVar(value=str(self.settings.get("nexus_api_key", "")))
+        self.nexus_key_status_var = tk.StringVar()
+        self.update_nexus_key_status()
         ttk.Label(nexus, text="Nexus API key", style="Panel.TLabel").grid(row=1, column=0, sticky="w", pady=5)
         ttk.Entry(nexus, textvariable=self.nexus_api_key_var, show="*", width=52).grid(row=1, column=1, sticky="ew", pady=5)
+        ttk.Label(nexus, textvariable=self.nexus_key_status_var, style="Panel.TLabel").grid(row=2, column=1, sticky="w", pady=(0, 5))
         ttk.Label(
             nexus,
             text="Optional. Used only for checking tracked Nexus mod metadata. Manual ZIP install works without it.",
             style="Panel.TLabel",
-        ).grid(row=2, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        ).grid(row=3, column=0, columnspan=2, sticky="w", pady=(2, 0))
         nexus.columnconfigure(1, weight=1)
 
         startup = ttk.Frame(container, style="Panel.TFrame", padding=14)
@@ -1102,6 +1106,12 @@ class AskaServerManager(tk.Tk):
     def save_mod_sources(self):
         write_json(MOD_SOURCES_FILE, self.mod_sources)
 
+    def update_nexus_key_status(self):
+        if not self.nexus_key_status_var:
+            return
+        key = self.nexus_api_key_var.get().strip() if hasattr(self, "nexus_api_key_var") else self.settings.get("nexus_api_key", "")
+        self.nexus_key_status_var.set(f"Saved key status: {'key entered' if key else 'no key entered'}")
+
     def set_selected_mod_source(self):
         plugin_path = self.selected_plugin_path()
         if not plugin_path:
@@ -1158,7 +1168,7 @@ class AskaServerManager(tk.Tk):
         if not tracked:
             messagebox.showinfo(APP_NAME, "No tracked Nexus mod URLs are configured yet.")
             return
-        api_key = self.settings.get("nexus_api_key", "").strip()
+        api_key = self.nexus_api_key_var.get().strip() if hasattr(self, "nexus_api_key_var") else self.settings.get("nexus_api_key", "").strip()
         if not api_key:
             pages = "\n".join(source.get("nexus_url", "") for source in tracked if source.get("nexus_url"))
             messagebox.showinfo(
@@ -1168,6 +1178,9 @@ class AskaServerManager(tk.Tk):
                 f"Tracked pages:\n{pages}",
             )
             return
+        self.settings["nexus_api_key"] = api_key
+        write_json(SETTINGS_FILE, self.settings)
+        self.update_nexus_key_status()
         self.run_threaded("Nexus update check", lambda: self.do_check_nexus_updates(api_key, tracked))
 
     def do_check_nexus_updates(self, api_key: str, tracked: list):
@@ -1183,6 +1196,10 @@ class AskaServerManager(tk.Tk):
                 version = data.get("version") or "unknown version"
                 updated = data.get("updated_time") or data.get("created_time") or "unknown update time"
                 lines.append(f"{name}: latest {version}, updated {updated}")
+            except urllib.error.HTTPError as exc:
+                detail = exc.read().decode("utf-8", errors="replace")[:300]
+                lines.append(f"{name}: check failed (HTTP {exc.code})")
+                self.log(f"Nexus check failed for {name}: HTTP {exc.code} {detail}")
             except (OSError, urllib.error.URLError, json.JSONDecodeError) as exc:
                 lines.append(f"{name}: check failed ({exc})")
                 self.log(f"Nexus check failed for {name}: {exc}")
@@ -1714,6 +1731,7 @@ class AskaServerManager(tk.Tk):
         self.settings["start_server_on_app_launch"] = self.start_server_on_launch_var.get()
         self.settings["auto_restart_server"] = self.auto_restart_var.get()
         write_json(SETTINGS_FILE, self.settings)
+        self.update_nexus_key_status()
         self.sync_windows_startup()
         self.log("Settings saved.")
         self.refresh_all()
