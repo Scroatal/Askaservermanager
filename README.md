@@ -6,7 +6,71 @@ Local Windows desktop manager for an ASKA dedicated server. It is built with Pyt
 
 The UI uses colors inspired by the public ASKA site at <https://playaska.com/> and an original generated app emblem.
 
+## Download And Install
+
+1. Download the latest release zip from:
+
+   <https://github.com/Scroatal/Askaservermanager/releases>
+
+2. Extract the zip to a folder, for example:
+
+   ```text
+   C:\Tools\ASKA Server Manager
+   ```
+
+3. Run:
+
+   ```text
+   ASKA Server Manager.exe
+   ```
+
+Windows may show a SmartScreen warning because the app is not code-signed. Choose `More info` and `Run anyway` if you trust the download source.
+
+The app creates local files beside the executable:
+
+```text
+settings.json
+mods.json
+```
+
+Do not share those files if they contain private paths or a Nexus API key.
+
+## First Run Setup
+
+Open the Settings tab and confirm these paths match your machine:
+
+```text
+Server install folder
+Launcher batch file
+Server properties file
+SteamCMD executable
+BepInEx plugins folder
+BepInEx config folder
+Save folder
+Backup folder
+```
+
+Click `Save Settings`, then close and reopen the app once to confirm settings persist.
+
+Recommended first test:
+
+1. Stop the ASKA server.
+2. Click `Backup Now`.
+3. Confirm a backup appears in the Backups tab.
+4. Start the server from the app.
+5. Confirm Dashboard shows `Running`.
+
+## Safety Rules
+
+The app refuses to restore, wipe, edit server config, edit mod config, install mod ZIPs, or update the server while `AskaServer.exe` is running.
+
+Before restore, wipe, server update, and mod ZIP install, the app creates backups. If the required pre-wipe backup fails, the wipe is aborted.
+
 ## Run
+
+For normal users, use the release `.exe`.
+
+For development, run from source:
 
 ```bat
 python aska_server_manager.py
