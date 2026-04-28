@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.1.2"
+APP_VERSION = "0.1.3"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -190,6 +190,9 @@ class AskaServerManager(tk.Tk):
         self.mod_config_text = None
         self.current_mod_config_path = None
         self.mod_source_label_var = None
+        self.start_button = None
+        self.stop_button = None
+        self.update_server_button = None
         self.icon_image = None
         self.dashboard_icon_image = None
 
@@ -226,6 +229,8 @@ class AskaServerManager(tk.Tk):
         style.map("TButton", background=[("active", COLORS["border"])])
         style.configure("Accent.TButton", background=COLORS["accent"], foreground="#201e1d")
         style.map("Accent.TButton", background=[("active", COLORS["accent_dark"])])
+        style.configure("Green.TButton", background="#278a42", foreground=COLORS["text"])
+        style.map("Green.TButton", background=[("active", "#1f6f35")])
         style.configure("Danger.TButton", background=COLORS["danger"], foreground=COLORS["text"])
         style.map("Danger.TButton", background=[("active", COLORS["danger_dark"])])
         style.configure("TCheckbutton", background=COLORS["bg"], foreground=COLORS["text"])
@@ -314,14 +319,17 @@ class AskaServerManager(tk.Tk):
 
         buttons = ttk.Frame(left, style="Panel.TFrame")
         buttons.pack(fill="x", pady=(0, 16))
-        ttk.Button(buttons, text="Start Server", style="Accent.TButton", command=self.start_server).grid(row=0, column=0, padx=4, pady=4, sticky="ew")
-        ttk.Button(buttons, text="Stop Server", command=self.stop_server).grid(row=0, column=1, padx=4, pady=4, sticky="ew")
+        self.start_button = ttk.Button(buttons, text="Start Server", command=self.start_server)
+        self.start_button.grid(row=0, column=0, padx=4, pady=4, sticky="ew")
+        self.stop_button = ttk.Button(buttons, text="Stop Server", command=self.stop_server)
+        self.stop_button.grid(row=0, column=1, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Restart Server", command=self.restart_server).grid(row=0, column=2, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Backup Now", style="Accent.TButton", command=lambda: self.run_threaded("Backup", self.create_backup)).grid(row=1, column=0, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Open Install Folder", command=lambda: self.open_path(self.path("server_install_path"))).grid(row=1, column=1, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Open Save Folder", command=lambda: self.open_path(self.path("save_folder_path"))).grid(row=1, column=2, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Check Server Update", command=lambda: self.check_server_update(show_dialog=True)).grid(row=2, column=0, padx=4, pady=4, sticky="ew")
-        ttk.Button(buttons, text="Update Server", style="Accent.TButton", command=self.update_server_with_steamcmd).grid(row=2, column=1, padx=4, pady=4, sticky="ew")
+        self.update_server_button = ttk.Button(buttons, text="Update Server", command=self.update_server_with_steamcmd)
+        self.update_server_button.grid(row=2, column=1, padx=4, pady=4, sticky="ew")
         for i in range(3):
             buttons.columnconfigure(i, weight=1)
 
@@ -630,6 +638,10 @@ class AskaServerManager(tk.Tk):
         if "detected_process" in self.dashboard_vars:
             self.dashboard_vars["detected_process"].set(process_text or "None")
         self.status_label.configure(foreground=COLORS["ok"] if running else COLORS["muted"])
+        if self.start_button:
+            self.start_button.configure(style="TButton" if running else "Green.TButton")
+        if self.stop_button:
+            self.stop_button.configure(style="Danger.TButton" if running else "TButton")
 
     def schedule_status_refresh(self):
         self.refresh_status()
@@ -770,6 +782,7 @@ class AskaServerManager(tk.Tk):
             self.log(f"Server update check unavailable: local={build_id}, error={error_text}")
             if "server_update_status" in self.dashboard_vars:
                 self.after(0, self.dashboard_vars["server_update_status"].set, status_text)
+            self.after(0, self.set_update_button_available, False)
             if show_dialog:
                 self.after(
                     0,
@@ -786,10 +799,13 @@ class AskaServerManager(tk.Tk):
         required = str(result.get("required_version", "unknown"))
         steam_message = result.get("message", "")
         if up_to_date:
-            status_text = f"Latest - build {build_id}"
-            message = f"ASKA Dedicated Server appears up to date.\n\nLocal build: {build_id}"
+            status_text = f"Server is up to date - build {build_id}"
+            message = f"ASKA Dedicated Server is up to date.\n\nLocal build: {build_id}"
         else:
-            status_text = f"Update available - local {build_id}, latest {required}"
+            if required == "unknown":
+                status_text = f"Update may be available - local {build_id}, latest unknown"
+            else:
+                status_text = f"Update available - local {build_id}, latest {required}"
             message = (
                 "ASKA Dedicated Server update appears available.\n\n"
                 f"Local build: {build_id}\n"
@@ -801,8 +817,13 @@ class AskaServerManager(tk.Tk):
         self.log(f"Server update check: local={build_id}, required={required}, up_to_date={up_to_date}")
         if "server_update_status" in self.dashboard_vars:
             self.after(0, self.dashboard_vars["server_update_status"].set, status_text)
+        self.after(0, self.set_update_button_available, (not up_to_date) and required != "unknown")
         if show_dialog:
             self.after(0, messagebox.showinfo, APP_NAME, message)
+
+    def set_update_button_available(self, available: bool):
+        if self.update_server_button:
+            self.update_server_button.configure(style="Green.TButton" if available else "TButton")
 
     def update_server_with_steamcmd(self):
         if self.is_server_running():
