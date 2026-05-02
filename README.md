@@ -1,8 +1,8 @@
 # ASKA Server Manager
 
-Version: `0.1.6`
+Version: `0.2.0`
 
-Local Windows desktop manager for an ASKA dedicated server. It is built with Python 3 and Tkinter, using only the Python standard library.
+Local Windows desktop manager for ASKA and Windrose dedicated servers. It is built with Python 3 and Tkinter, using only the Python standard library.
 
 The UI uses colors inspired by the public ASKA site at <https://playaska.com/> and an original generated app emblem.
 
@@ -65,6 +65,8 @@ Recommended first test:
 The app refuses to restore, wipe, edit server config, edit mod config, install mod ZIPs, or update the server while `AskaServer.exe` is running.
 
 Before restore, wipe, server update, and mod ZIP install, the app creates backups. If the required pre-wipe backup fails, the wipe is aborted.
+
+Windrose actions use the same cautious rule: stop `WindroseServer.exe` before editing config or updating with SteamCMD.
 
 ## Windows Startup And Auto-Restart
 
@@ -196,6 +198,39 @@ Use `Install Mod ZIP` after manually downloading a mod from Nexus Mods. The app 
 For Nexus tracking, select a plugin DLL and click `Set Nexus URL`. The app stores the source in `mods.json` beside the executable. `Open Nexus Page` opens the tracked page in your browser. `Check Nexus Updates` can query Nexus metadata if you add your own Nexus API key in Settings.
 
 Nexus SSO is not built into this app because Nexus requires an approved application slug for SSO clients. Manual API key entry is simpler and works without registering this app with Nexus.
+
+## Windrose
+
+The Windrose tab manages the Windrose Dedicated Server tool separately from ASKA.
+
+It can:
+
+```text
+Start, stop, and restart WindroseServer.exe
+Back up the configured Windrose save folder and ServerDescription.json
+Edit ServerDescription.json with JSON validation
+Check the local Steam build against Steam
+Update the server with SteamCMD
+Auto-detect the install path from Steam manifests or a running WindroseServer.exe process
+```
+
+Default Windrose paths:
+
+```text
+E:\steam\steamapps\common\Windrose Dedicated Server
+E:\steam\steamapps\common\Windrose Dedicated Server\StartServerForeground.bat
+E:\steam\steamapps\common\Windrose Dedicated Server\R5\ServerDescription.json
+E:\steam\steamapps\common\Windrose Dedicated Server\R5\Saved\SaveProfiles\Default\RocksDB
+E:\windrose_backups
+```
+
+Windrose uses Steam dedicated server app ID:
+
+```text
+4129620
+```
+
+The first Windrose release deliberately does not include restore or wipe buttons. Confirm the generated save folder on the host first, then backups can be restored manually from the backup folder if needed.
 
 ## Server Updates
 
