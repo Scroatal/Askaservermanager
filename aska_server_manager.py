@@ -18,7 +18,7 @@ from tkinter import filedialog, messagebox, ttk
 
 
 APP_NAME = "ASKA Server Manager"
-APP_VERSION = "0.2.0"
+APP_VERSION = "0.2.1"
 SOURCE_DIR = Path(__file__).resolve().parent
 APP_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else SOURCE_DIR
 SETTINGS_FILE = APP_DIR / "settings.json"
@@ -441,6 +441,7 @@ class AskaServerManager(tk.Tk):
         ttk.Button(buttons, text="Open Install", command=lambda: self.open_path(self.path("windrose_server_install_path"))).grid(row=2, column=0, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Open Save", command=lambda: self.open_path(self.path("windrose_save_folder_path"))).grid(row=2, column=1, padx=4, pady=4, sticky="ew")
         ttk.Button(buttons, text="Open Backups", command=lambda: self.open_path(self.path("windrose_backup_folder_path"))).grid(row=2, column=2, padx=4, pady=4, sticky="ew")
+        ttk.Button(buttons, text="Install Windrose Server", style="Green.TButton", command=self.install_windrose_server_with_steamcmd).grid(row=3, column=0, columnspan=3, padx=4, pady=4, sticky="ew")
         for i in range(3):
             buttons.columnconfigure(i, weight=1)
 
@@ -1185,6 +1186,7 @@ class AskaServerManager(tk.Tk):
         self.windrose_vars["backup_count"].set(str(len(backups)))
 
     def start_windrose_server(self):
+        self.sync_windrose_path_vars()
         if self.is_windrose_running():
             messagebox.showinfo(APP_NAME, "The Windrose server is already running.")
             self.log("Windrose start skipped: server already running.")
@@ -1354,6 +1356,7 @@ class AskaServerManager(tk.Tk):
             self.after(0, messagebox.showinfo, APP_NAME, message)
 
     def update_windrose_server_with_steamcmd(self):
+        self.sync_windrose_path_vars()
         if self.is_windrose_running():
             messagebox.showwarning(APP_NAME, "Stop the Windrose server before running a SteamCMD update.")
             self.log("Windrose SteamCMD update refused: server is running.")
@@ -1376,10 +1379,68 @@ class AskaServerManager(tk.Tk):
             return
         self.run_threaded("Windrose SteamCMD server update", self.do_update_windrose_server_with_steamcmd)
 
+    def install_windrose_server_with_steamcmd(self):
+        self.sync_windrose_path_vars()
+        if self.is_windrose_running():
+            messagebox.showwarning(APP_NAME, "Stop the Windrose server before installing or repairing it with SteamCMD.")
+            self.log("Windrose SteamCMD install refused: server is running.")
+            return
+        steamcmd = self.path("steamcmd_path")
+        if not steamcmd.exists():
+            messagebox.showerror(APP_NAME, f"SteamCMD was not found:\n{steamcmd}\n\nSet the SteamCMD executable path in Settings.")
+            self.log(f"Windrose SteamCMD install failed: steamcmd not found: {steamcmd}")
+            return
+        install_dir = self.path("windrose_server_install_path")
+        if not self.validate_safe_folder(install_dir, "Windrose install folder"):
+            return
+        if not messagebox.askyesno(
+            APP_NAME,
+            "Install or repair Windrose Dedicated Server with SteamCMD?\n\n"
+            f"Install folder:\n{install_dir}\n\n"
+            "This downloads Steam app 4129620 using anonymous SteamCMD login.",
+        ):
+            return
+        self.run_threaded("Windrose SteamCMD server install", self.do_install_windrose_server_with_steamcmd)
+
+    def do_install_windrose_server_with_steamcmd(self):
+        steamcmd = self.path("steamcmd_path")
+        install_dir = self.path("windrose_server_install_path")
+        try:
+            install_dir.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            self.log(f"Windrose install failed: could not create install folder: {exc}")
+            self.after(0, messagebox.showerror, APP_NAME, f"Could not create Windrose install folder:\n{exc}")
+            return
+        exit_code = self.run_windrose_steamcmd(steamcmd, install_dir, "install")
+        if exit_code == 0:
+            self.settings["windrose_server_bat_path"] = str(install_dir / "StartServerForeground.bat")
+            self.settings["windrose_server_exe_path"] = str(install_dir / WINDROSE_EXE_NAME)
+            self.settings["windrose_server_config_path"] = str(install_dir / "R5" / "ServerDescription.json")
+            save_path = next((candidate for candidate in self.windrose_save_candidates(install_dir) if candidate.exists()), self.windrose_save_candidates(install_dir)[0])
+            self.settings["windrose_save_folder_path"] = str(save_path)
+            write_json(SETTINGS_FILE, self.settings)
+            self.after(0, self.apply_windrose_settings_to_ui)
+            self.after(0, self.refresh_windrose_dashboard)
+            self.after(0, self.check_windrose_update, False)
+            self.after(0, messagebox.showinfo, APP_NAME, "Windrose Dedicated Server install/repair complete.")
+        else:
+            self.after(0, messagebox.showerror, APP_NAME, f"Windrose SteamCMD install exited with code {exit_code}. Check Logs.")
+
     def do_update_windrose_server_with_steamcmd(self):
         self.create_windrose_backup(prefix_override="before_windrose_update_", show_missing_error=False)
         steamcmd = self.path("steamcmd_path")
         install_dir = self.path("windrose_server_install_path")
+        exit_code = self.run_windrose_steamcmd(steamcmd, install_dir, "update")
+
+        if exit_code == 0:
+            self.log("Windrose SteamCMD update completed successfully.")
+            self.after(0, self.check_windrose_update, False)
+            self.after(0, messagebox.showinfo, APP_NAME, "Windrose server update complete.")
+        else:
+            self.log(f"Windrose SteamCMD update exited with code {exit_code}.")
+            self.after(0, messagebox.showerror, APP_NAME, f"Windrose SteamCMD update exited with code {exit_code}. Check Logs.")
+
+    def run_windrose_steamcmd(self, steamcmd: Path, install_dir: Path, action_label: str) -> int:
         command = [
             str(steamcmd),
             "+login",
@@ -1391,7 +1452,7 @@ class AskaServerManager(tk.Tk):
             "validate",
             "+quit",
         ]
-        self.log("Running SteamCMD update for Windrose Dedicated Server app 4129620.")
+        self.log(f"Running SteamCMD {action_label} for Windrose Dedicated Server app 4129620.")
         try:
             process = subprocess.Popen(
                 command,
@@ -1408,19 +1469,13 @@ class AskaServerManager(tk.Tk):
                     self.log(f"Windrose SteamCMD: {clean}")
             exit_code = process.wait()
         except OSError as exc:
-            self.log(f"Windrose SteamCMD update failed: {exc}")
-            self.after(0, messagebox.showerror, APP_NAME, f"Windrose SteamCMD update failed:\n{exc}")
-            return
-
-        if exit_code == 0:
-            self.log("Windrose SteamCMD update completed successfully.")
-            self.after(0, self.check_windrose_update, False)
-            self.after(0, messagebox.showinfo, APP_NAME, "Windrose server update complete.")
-        else:
-            self.log(f"Windrose SteamCMD update exited with code {exit_code}.")
-            self.after(0, messagebox.showerror, APP_NAME, f"Windrose SteamCMD update exited with code {exit_code}. Check Logs.")
+            self.log(f"Windrose SteamCMD {action_label} failed: {exc}")
+            self.after(0, messagebox.showerror, APP_NAME, f"Windrose SteamCMD {action_label} failed:\n{exc}")
+            return 1
+        return exit_code
 
     def create_windrose_backup(self, prefix_override=None, show_missing_error=True) -> Path | None:
+        self.sync_windrose_path_vars()
         save_dir = self.path("windrose_save_folder_path")
         config_path = self.path("windrose_server_config_path")
         backup_dir = self.path("windrose_backup_folder_path")
@@ -1470,6 +1525,7 @@ class AskaServerManager(tk.Tk):
         return sorted(items, key=lambda row: row[1], reverse=True)
 
     def load_windrose_config(self):
+        self.sync_windrose_path_vars()
         config_path = self.path("windrose_server_config_path")
         if not config_path.exists():
             messagebox.showerror(APP_NAME, f"Windrose config file not found:\n{config_path}")
@@ -1487,6 +1543,7 @@ class AskaServerManager(tk.Tk):
         self.log(f"Loaded Windrose config: {config_path}")
 
     def save_windrose_config(self):
+        self.sync_windrose_path_vars()
         if self.is_windrose_running():
             messagebox.showwarning(APP_NAME, "Stop the Windrose server before editing ServerDescription.json.")
             self.log("Windrose config save refused: server is running.")
@@ -2059,6 +2116,15 @@ class AskaServerManager(tk.Tk):
             selected = filedialog.askdirectory(initialdir=current or str(APP_DIR))
         if selected:
             self.path_vars[key].set(selected)
+
+    def sync_windrose_path_vars(self):
+        for key, var in self.windrose_path_vars.items():
+            self.settings[key] = var.get()
+        write_json(SETTINGS_FILE, self.settings)
+
+    def apply_windrose_settings_to_ui(self):
+        for key, var in self.windrose_path_vars.items():
+            var.set(str(self.settings.get(key, "")))
 
     def windows_startup_script_path(self) -> Path:
         startup_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs" / "Startup"

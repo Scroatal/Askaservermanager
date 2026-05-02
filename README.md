@@ -1,6 +1,6 @@
 # ASKA Server Manager
 
-Version: `0.2.0`
+Version: `0.2.1`
 
 Local Windows desktop manager for ASKA and Windrose dedicated servers. It is built with Python 3 and Tkinter, using only the Python standard library.
 
@@ -207,6 +207,7 @@ It can:
 
 ```text
 Start, stop, and restart WindroseServer.exe
+Install or repair the Windrose Dedicated Server with SteamCMD
 Back up the configured Windrose save folder and ServerDescription.json
 Edit ServerDescription.json with JSON validation
 Check the local Steam build against Steam
@@ -231,6 +232,12 @@ Windrose uses Steam dedicated server app ID:
 ```
 
 The first Windrose release deliberately does not include restore or wipe buttons. Confirm the generated save folder on the host first, then backups can be restored manually from the backup folder if needed.
+
+If Windrose Dedicated Server is not installed yet, set `SteamCMD executable`, confirm the Windrose install folder, then click `Install Windrose Server`. The app runs the equivalent of:
+
+```bat
+steamcmd.exe +login anonymous +force_install_dir "E:\steam\steamapps\common\Windrose Dedicated Server" +app_update 4129620 validate +quit
+```
 
 ## Server Updates
 
